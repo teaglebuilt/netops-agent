@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------------
+# Build context trimming.
+#
+# The build needs: go.mod, go.sum, cmd/, internal/ (including
+# internal/bpf/src/netops.bpf.c). Everything else is noise.
+#
+# NOTE: *.o is excluded on purpose. internal/bpf/netops.bpf.o is gitignored and
+# is compiled *inside* the image (bpf-builder stage). Excluding it here
+# guarantees a stale host-built object can never leak into the image and be
+# picked up by //go:embed.
+# ---------------------------------------------------------------------------
+
+# VCS
+.git
+.gitignore
+.github
+
+# Compiled artifacts (BPF objects are rebuilt in-image)
+*.o
+*.ll
+*.a
+*.so
+*.test
+bin/
+dist/
+vendor/
+# stray host-built binary sitting at the repo root
+/agent
+
+# Deployment / docs / tooling that the image build does not need
+chart/
+docs/
+Makefile
+README.md
+*.md
+Dockerfile
+.dockerignore
+
+# Editor / OS cruft
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Local env
+.env
+.env.local
+.envrc
+.worktrees/
+coverage.txt
+*.out
