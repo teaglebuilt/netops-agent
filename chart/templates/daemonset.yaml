@@ -53,7 +53,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             {{- with .Values.iface }}
-            - name: netops_IFACE
+            - name: NETOPS_DEVICE
               value: {{ . | quote }}
             {{- end }}
             {{- with .Values.extraEnv }}
