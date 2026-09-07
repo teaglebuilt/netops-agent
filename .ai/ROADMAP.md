@@ -1,0 +1,2 @@
+
+- [ ] - netops broker - a single, unprivileged MCP front door that fans out to the privileged per-node DaemonSet over an internal API. The agent never gets a handle on a privileged pod; the broker is the policy enforcement point (allowlist, probe duration cap, one-probe-at-a-time-per-node).

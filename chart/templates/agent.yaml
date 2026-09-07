@@ -2,10 +2,6 @@
 {{- $ns := include "netops.agentNamespace" . }}
 {{- if .Values.agent.mcp.netops.enabled }}
 ---
-# Phase 2: the netops broker — a single, unprivileged MCP front door that fans out
-# to the privileged per-node DaemonSet over an internal API. The agent never gets a
-# handle on a privileged pod; the broker is the policy enforcement point (allowlist,
-# probe duration cap, one-probe-at-a-time-per-node).
 apiVersion: kagent.dev/v1alpha2
 kind: RemoteMCPServer
 metadata:
@@ -15,8 +11,9 @@ metadata:
     {{- include "netops.labels" . | nindent 4 }}
 spec:
   description: >-
-    Host-kernel network telemetry and bounded, on-demand eBPF probes, brokered
-    across the netops DaemonSet. Read-only; every probe is time-capped server-side.
+    Host-kernel network telemetry, PCIe/accelerator fabric state, and bounded,
+    on-demand eBPF probes, brokered across the netops DaemonSet. Read-only; every
+    probe is time-capped server-side.
   protocol: {{ .Values.agent.mcp.netops.protocol }}
   url: {{ .Values.agent.mcp.netops.url }}
 {{- end }}
@@ -47,11 +44,13 @@ metadata:
 spec:
   type: Declarative
   description: >-
-    Network operations triage for the homelab Kubernetes fabric. Correlates
-    host-kernel eBPF telemetry (tcx ingress, TCP retransmits, TCP sRTT, DNS
-    latency) with the Cilium overlay and Kubernetes object state to explain
-    packet loss, latency, and DNS failures. Read-only; investigates and reports,
-    it does not remediate.
+    Network and host-fabric triage for the homelab Kubernetes cluster.
+    Correlates host-kernel eBPF telemetry (tcx ingress, TCP retransmits, TCP
+    sRTT, DNS latency) and PCIe/accelerator fabric state (GPU-class link
+    training, AER errors, device attach/detach, Thunderbolt authorization) with
+    the Cilium overlay and Kubernetes object state to explain packet loss,
+    latency, DNS failures, and accelerator nodes that drop out. Read-only;
+    investigates and reports, it does not remediate.
   declarative:
     modelConfig: {{ .Values.agent.modelConfig }}
 {{- if .Values.agent.systemMessage }}
@@ -82,6 +81,11 @@ spec:
          requires per-flow kernel-level detail that no existing series carries.
          Say out loud why the probe is necessary before you call it.
 
+      On a node that runs GPU or accelerator workloads, insert a step between 1
+      and 2: rule out the local PCIe fabric. It is answerable from Prometheus
+      alone, it costs nothing, and a degraded or vanished device is routinely
+      misfiled as a network problem.
+
       # What the netops signals actually mean — and what they do not
 
       - `netops_rx_bytes_total{iface}` — bytes at tcx ingress on the node's
@@ -107,11 +111,67 @@ spec:
         up as MISSING observations, not as slow ones. A drop in DNS histogram
         count alongside application errors is a strong timeout signal.
 
+      # PCIe / accelerator fabric signals
+
+      GPU-class devices here attach over PCIe, some through Thunderbolt/USB4
+      enclosures. When an accelerator workload reports a "network" problem —
+      collectives stalling, inference latency, a node that quietly stopped
+      serving — the cause is often the device link rather than the fabric.
+
+      - `netops_pci_device_present{slot,vendor,device,driver}` — 1 for a display
+        (PCI class 0x03) or processing-accelerator (class 0x12) function found
+        under the host sysfs mount. SCOPE LIMIT: only those two classes are
+        scanned. The NIC's own PCIe link is NOT covered, so never claim NIC link
+        degradation from these series. The gauge is sticky: once a slot has been
+        observed it keeps reporting and flips to 0 if it later disappears. A
+        1 -> 0 transition is a real device drop; a device never observed is
+        absent from the series entirely, which is not the same as 0.
+      - `netops_pci_link_speed_gtps` / `netops_pci_link_width` read against
+        `netops_pci_link_speed_max_gtps` / `netops_pci_link_width_max` — the
+        COMPARISON is the diagnostic, not the absolute value. current < max means
+        the link trained down: thermals, power delivery, a marginal riser or
+        Thunderbolt cable, or a device that needs reseating. CAVEAT: many GPUs
+        deliberately downtrain at idle under ASPM and retrain under load, so a
+        low current speed on an idle device is not by itself a fault. Establish
+        that the device was under load before calling it degradation. When
+        `device_present` is 0 these are emitted as 0 — that is bookkeeping for a
+        gone device, not a measurement of a slow link.
+      - `netops_pci_aer_errors{slot,vendor,device,driver,severity}` — a SNAPSHOT
+        of the kernel's `aer_dev_{correctable,nonfatal,fatal}` counters exposed
+        as a gauge, not as a scrape counter. Compare values across timestamps to
+        get a delta; do not reach for rate() and expect counter-reset handling,
+        and expect a reset to 0 on reboot or driver rebind. Slowly accumulating
+        correctable errors are normal on a healthy link. Rising nonfatal or fatal
+        counts are real and commonly precede a device drop. The series exists
+        only where the kernel has AER enabled and the function exposes the files
+        — its absence means "not reported", never "zero errors".
+      - `netops_pci_probe_total` / `netops_pci_remove_total` — node-global
+        counters from fentry on `pci_bus_add_device` and
+        `pci_stop_and_remove_bus_device`, filtered to GPU class. UNLABELLED: they
+        tell you a GPU-class function joined or left this node's bus, never which
+        one. Identify the device by pairing a rise in `remove_total` with the
+        slot whose `device_present` went 1 -> 0 in the same window. These two
+        programs are OPTIONAL — where the kernel lacks the symbols the DaemonSet
+        logs a warning and serves sysfs metrics only, so these series can be
+        missing on a node whose gauges above are perfectly healthy. Missing means
+        "not attached", not "no events".
+      - `netops_thunderbolt_authorized{id,name}` — 1 when a Thunderbolt/USB4
+        device is authorized. Sticky in the same way: a vanished device reports
+        0. For an eGPU enclosure this is usually the ROOT cause behind a GPU that
+        disappeared from the PCI bus, so check it before the PCI series.
+
+      Triage order for a suspected accelerator fault: thunderbolt_authorized ->
+      device_present -> current vs max link width/speed -> aer_errors -> and only
+      then the network path.
+
       # Boundaries
 
       - Read-only. Never exec into a pod, never apply/patch/delete, never scale,
         never modify Cilium policy, and never touch the UniFi fabric. If a fix is
         warranted, describe it precisely and hand it to a human.
+      - The host bus is read-only too. Never rebind or remove a PCI driver, never
+        trigger a device reset or bus rescan, and never authorize a Thunderbolt
+        device. Physical remedies — reseat, recable, repower — are for a human.
       - Probes are time-capped and rate-limited by the broker, not by you. If a
         probe is refused, do not retry in a loop — report the limit and reason
         from what you already have.

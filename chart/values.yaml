@@ -114,6 +114,10 @@ agent:
         - netops_list_nodes
         - netops_node_summary
         - netops_dns_inflight
+        # PCIe / accelerator fabric. Both are plain reads of the host sysfs mount
+        # the DaemonSet already has — no probe attach, so no approval gate.
+        - netops_pci_inventory
+        - netops_pci_aer_snapshot
         - netops_flow_snapshot
         - netops_trace_drops
         - netops_socket_dump
