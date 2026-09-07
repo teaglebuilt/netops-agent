@@ -55,7 +55,7 @@ spec:
             - name: NETOPS_SYSFS
               value: {{ .Values.pcie.sysfsRoot | default "/host/sys" | quote }}
             {{- with .Values.iface }}
-            - name: netops_IFACE
+            - name: NETOPS_DEVICE
               value: {{ . | quote }}
             {{- end }}
             {{- with .Values.extraEnv }}

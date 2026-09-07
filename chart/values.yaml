@@ -8,7 +8,10 @@ image:
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
-iface: "en0"
+# Interface for the tcx ingress program. Leave empty on Linux nodes: the agent
+# discovers the default-route NIC from /proc/net/route. Set only to override.
+# (The Go binary reads NETOPS_DEVICE.)
+iface: ""
 
 priorityClassName: ""
 extraEnv: []
@@ -53,3 +56,104 @@ readinessProbe:
   enabled: true
   initialDelaySeconds: 2
   periodSeconds: 5
+
+# ---------------------------------------------------------------------------
+# kagent Agent
+#
+# The DaemonSet above is the SENSOR (privileged, per-node, kernel telemetry).
+# This block is the REASONER (unprivileged, one replica, LLM-driven). They are
+# deliberately separate pods with separate trust levels: the agent must never
+# run inside a pod holding CAP_BPF / CAP_SYS_ADMIN.
+#
+# The Agent and RemoteMCPServer objects must land in a namespace the kagent
+# controller watches (the homelab runs kagent in `ai`), which is normally NOT
+# the namespace this chart's DaemonSet is released into — hence agent.namespace.
+# ---------------------------------------------------------------------------
+agent:
+  enabled: false
+  name: netops
+  # Namespace kagent watches. Empty = this release's namespace.
+  namespace: ai
+  # Must resolve to an existing ModelConfig in agent.namespace.
+  modelConfig: claude-opus-4-5
+
+  # Leave empty to use the chart's built-in prompt (recommended — it encodes the
+  # signal semantics and the cheap-to-expensive escalation ladder). Set to
+  # override wholesale.
+  systemMessage: ""
+
+  # The `ai` namespace ResourceQuota rejects pods without requests AND limits.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  env: []
+
+  # Long-lived triage context is expensive; compaction keeps sessions bounded.
+  compaction:
+    enabled: false
+    tokenThreshold: 100000
+
+  memory:
+    enabled: false
+
+  # A2A delegation. One level only.
+  subagents: []
+
+  mcp:
+    netops:
+      enabled: false
+      name: netops-mcp
+      protocol: STREAMABLE_HTTP
+      url: http://netops-broker.netops.svc.cluster.local:8085/mcp
+      toolNames:
+        - netops_list_nodes
+        - netops_node_summary
+        - netops_dns_inflight
+        # PCIe / accelerator fabric. Both are plain reads of the host sysfs mount
+        # the DaemonSet already has — no probe attach, so no approval gate.
+        - netops_pci_inventory
+        - netops_pci_aer_snapshot
+        - netops_flow_snapshot
+        - netops_trace_drops
+        - netops_socket_dump
+      requireApproval:
+        - netops_flow_snapshot
+        - netops_trace_drops
+
+    remote:
+      kagentTools:
+        enabled: true
+        create: false
+        name: kagent-tools
+        namespace: ""
+        description: "kagent built-in Kubernetes, Helm and Cilium tools"
+        protocol: STREAMABLE_HTTP
+        url: http://kagent-tools.ai.svc.cluster.local:8084/mcp
+        toolNames:
+          - cilium_get_endpoint_health
+          - cilium_get_endpoints_list
+          - cilium_get_identities_list
+          - cilium_get_ip_cache_list
+          - cilium_get_bpf_metrics_list
+          - cilium_show_status
+          - k8s_get_resources
+          - k8s_describe_resource
+          - k8s_get_events
+          - k8s_get_pod_logs
+        requireApproval: []
+
+      prometheus:
+        enabled: false
+        create: true
+        name: prometheus-mcp
+        namespace: ""
+        description: "PromQL query access to the central Prometheus hub"
+        protocol: STREAMABLE_HTTP
+        url: http://prometheus-mcp.observability.svc.cluster.local:8080/mcp
+        toolNames: []
+        requireApproval: []

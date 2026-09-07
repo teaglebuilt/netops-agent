@@ -1,0 +1,146 @@
+---
+name: CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: Install BPF toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang llvm libbpf-dev linux-libc-dev
+
+      - name: Compile BPF object (so go:embed succeeds)
+        run: make bpf
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "::error::gofmt found unformatted files:"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      - name: go mod tidy diff
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: helm lint
+        run: helm lint deploy/helm/netops
+
+      - name: helm template (smoke render)
+        run: helm template netops deploy/helm/netops --namespace netops-stage > /dev/null
+
+  kernel-smoke:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: Compile BPF object (bookworm clang — same as shipped image)
+        run: |
+          docker run --rm -v "$PWD":/src -w /src golang:1.23-bookworm bash -c '
+            set -euo pipefail
+            apt-get update
+            apt-get install -y --no-install-recommends clang llvm libbpf-dev linux-libc-dev
+            clang --version
+            make bpf
+          '
+
+      - name: Build cismoke binary
+        run: |
+          mkdir -p bin
+          CGO_ENABLED=0 go build \
+            -ldflags="-s -w" \
+            -o bin/cismoke \
+            ./cmd/cismoke
+
+      - name: Run kernel-load smoke (vmtest)
+        uses: danobi/vmtest-action@v0.9
+        with:
+          kernel_url: https://github.com/danobi/vmtest/releases/download/test_assets/bzImage-v6.18-fedora38
+          kernel_args: lockdown=confidentiality
+          command: ${{ github.workspace }}/bin/cismoke
+
+  image:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        run: |
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            echo "branch=main" >> "$GITHUB_OUTPUT"
+          else
+            ref="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+            slug="${ref//\//-}"
+            echo "branch=${slug}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: |
+            ghcr.io/teaglebuilt/netops:${{ steps.tags.outputs.branch }}
+            ghcr.io/teaglebuilt/netops:${{ steps.tags.outputs.sha }}
+            ghcr.io/teaglebuilt/netops:${{ steps.tags.outputs.date }}
+            ghcr.io/teaglebuilt/netops:${{ steps.tags.outputs.date }}-${{ steps.tags.outputs.sha }}
+            ghcr.io/teaglebuilt/netops:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

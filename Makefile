@@ -1,4 +1,4 @@
-IMAGE       ?= ghcr.io/teaglebuilt/netops
+IMAGE       ?= ghcr.io/teaglebuilt/netops-agent
 TAG         ?= dev
 PLATFORM    ?= linux/amd64
 
