@@ -73,7 +73,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     set -eux; \
     export GOARCH="${TARGETARCH}"; \
     go build -trimpath -ldflags="-s -w" -o /out/netops-agent ./cmd/network; \
-    go build -trimpath -ldflags="-s -w" -o /out/netops-smoke ./cmd/smoke; \
+    go build -trimpath -ldflags="-s -w" -o /out/netops-test ./cmd/test; \
     ls -l /out
 
 FROM ${RUNTIME_IMAGE} AS final
@@ -93,7 +93,7 @@ LABEL org.opencontainers.image.title="netops" \
       org.opencontainers.image.base.name="${RUNTIME_IMAGE}"
 
 COPY --from=go-builder /out/netops-agent /usr/local/bin/netops-agent
-COPY --from=go-builder /out/netops-smoke /usr/local/bin/netops-smoke
+COPY --from=go-builder /out/netops-test /usr/local/bin/netops-test
 
 USER 0:0
 

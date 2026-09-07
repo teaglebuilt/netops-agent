@@ -60,10 +60,10 @@ jobs:
       - name: helm lint
         run: helm lint deploy/helm/netops
 
-      - name: helm template (smoke render)
+      - name: helm template
         run: helm template netops deploy/helm/netops --namespace netops-stage > /dev/null
 
-  kernel-smoke:
+  kernel-test:
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -85,20 +85,20 @@ jobs:
             make bpf
           '
 
-      - name: Build cismoke binary
+      - name: Build test binary
         run: |
           mkdir -p bin
           CGO_ENABLED=0 go build \
             -ldflags="-s -w" \
-            -o bin/cismoke \
-            ./cmd/cismoke
+            -o bin/test \
+            ./cmd/test
 
-      - name: Run kernel-load smoke (vmtest)
+      - name: Run kernel-load test
         uses: danobi/vmtest-action@v0.9
         with:
           kernel_url: https://github.com/danobi/vmtest/releases/download/test_assets/bzImage-v6.18-fedora38
           kernel_args: lockdown=confidentiality
-          command: ${{ github.workspace }}/bin/cismoke
+          command: ${{ github.workspace }}/bin/test
 
   image:
     needs: lint

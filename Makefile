@@ -26,9 +26,9 @@ build:
 push:
 	docker push $(IMAGE):$(TAG)
 
-.PHONY: cismoke
-cismoke: bpf
-	CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/cismoke ./cmd/cismoke
+.PHONY: test
+test: bpf
+	CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/test ./cmd/test
 
 .PHONY: tidy
 tidy:
