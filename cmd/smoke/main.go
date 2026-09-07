@@ -157,7 +157,97 @@ func run() error {
 	if failures > 0 {
 		return fmt.Errorf("%d program(s) failed to load or attach", failures)
 	}
+
+	if err := smokePCI(); err != nil {
+		return err
+	}
+
 	fmt.Println("OK: all programs verified and attached")
+	return nil
+}
+
+func smokePCI() error {
+	spec, err := ebpf.LoadCollectionSpecFromReader(bytes.NewReader(netops.PCIeObject))
+	if err != nil {
+		return fmt.Errorf("load pci bpf spec: %w", err)
+	}
+
+	expected := make([]string, 0, len(spec.Programs))
+	for name := range spec.Programs {
+		expected = append(expected, name)
+	}
+
+	coll, err := ebpf.NewCollection(spec)
+	if err != nil {
+		printVerifierError(err)
+		return fmt.Errorf("new pci bpf collection: %w", err)
+	}
+	defer coll.Close()
+
+	fmt.Printf("LOAD pci: ok (%d programs verified)\n", len(expected))
+	for _, name := range expected {
+		fmt.Printf("  - %s\n", name)
+	}
+
+	steps := []attachStep{
+		{
+			progName: "count_pci_add",
+			describe: "fentry pci_bus_add_device",
+			attach: func(prog *ebpf.Program) (link.Link, error) {
+				return link.AttachTracing(link.TracingOptions{
+					Program:    prog,
+					AttachType: ebpf.AttachTraceFEntry,
+				})
+			},
+		},
+		{
+			progName: "count_pci_remove",
+			describe: "fentry pci_stop_and_remove_bus_device",
+			attach: func(prog *ebpf.Program) (link.Link, error) {
+				return link.AttachTracing(link.TracingOptions{
+					Program:    prog,
+					AttachType: ebpf.AttachTraceFEntry,
+				})
+			},
+		},
+	}
+
+	covered := make(map[string]struct{}, len(steps))
+	for _, s := range steps {
+		covered[s.progName] = struct{}{}
+	}
+	var missing []string
+	for _, name := range expected {
+		if _, ok := covered[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("smoke test missing attach coverage for pci programs: %s", strings.Join(missing, ", "))
+	}
+
+	var failures int
+	for _, step := range steps {
+		prog := coll.Programs[step.progName]
+		if prog == nil {
+			fmt.Printf("FAIL %s: program not present in pci collection\n", step.progName)
+			failures++
+			continue
+		}
+		l, err := step.attach(prog)
+		if err != nil {
+			fmt.Printf("FAIL %s (%s): %v\n", step.progName, step.describe, err)
+			failures++
+			continue
+		}
+		fmt.Printf("ATTACH %s (%s): ok\n", step.progName, step.describe)
+		if cerr := l.Close(); cerr != nil {
+			fmt.Printf("WARN %s: close link: %v\n", step.progName, cerr)
+		}
+	}
+	if failures > 0 {
+		return fmt.Errorf("%d pci program(s) failed to load or attach", failures)
+	}
 	return nil
 }
 
