@@ -6,11 +6,17 @@ PLATFORM    ?= linux/amd64
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "%-20s %s\n", $$1, $$2}'
 
+BPF_CFLAGS ?= -O2 -g -Wall -Werror -target bpf -D__TARGET_ARCH_x86 \
+	-I/usr/include/bpf -I/usr/include/x86_64-linux-gnu
+
 .PHONY: bpf
-bpf:
-	clang -O2 -g -Wall -Werror -target bpf -D__TARGET_ARCH_x86 \
-	  -I/usr/include/bpf -I/usr/include/x86_64-linux-gnu \
-	  -c internal/bpf/src/netops.bpf.c -o internal/bpf/netops.bpf.o
+bpf: internal/bpf/netops.bpf.o internal/bpf/trace_pcie.bpf.o
+
+internal/bpf/netops.bpf.o: internal/bpf/src/netops.bpf.c
+	clang $(BPF_CFLAGS) -c $< -o $@
+
+internal/bpf/trace_pcie.bpf.o: internal/bpf/src/trace_pcie.bpf.c
+	clang $(BPF_CFLAGS) -c $< -o $@
 
 .PHONY: build
 build:

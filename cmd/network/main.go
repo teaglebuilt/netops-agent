@@ -63,6 +63,8 @@ func run() error {
 	}
 
 	coll, err := ebpf.NewCollection(spec)
+	slog.Info("formed collection", "collection", coll)
+
 	if err != nil {
 		return fmt.Errorf("new bpf collection: %w", err)
 	}
@@ -247,6 +249,20 @@ func run() error {
 			nil, nil,
 		),
 	})
+
+	var probeMap, removeMap *ebpf.Map
+	pciProg, err := setupPCI()
+	if err != nil {
+		slog.Warn("pci fabric bpf unavailable; sysfs metrics only", "err", err)
+	} else {
+		defer pciProg.Close()
+		probeMap = pciProg.probeMap
+		removeMap = pciProg.removeMap
+	}
+
+	sysfs := sysfsRoot()
+	slog.Info("pci fabric collector", "sysfs", sysfs)
+	prometheus.MustRegister(newPCICollector(sysfs, probeMap, removeMap))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

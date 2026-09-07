@@ -1,0 +1,8 @@
+apiVersion: apps/v1
+kind: KAgent
+metadata:
+  name: {{ include "netops.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netops.labels" . | nindent 4 }}
+spec:
