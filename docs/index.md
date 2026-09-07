@@ -1,34 +1,54 @@
+## Host Nic Observability
 
+...
 
-## Smoke Test
+## Host PCI / Thunderbolt GPU fabric
 
-// Package main is the netops CI kernel-load smoke test. It exists to catch
-// verifier rejections that compile-only CI cannot see: the BPF .o builds fine
-// under clang but a real kernel rejects the program when the verifier walks
-// it at load or attach time.
-//
-// Concretely, PRs #7-#9 each shipped a SRTT histogram that passed `make bpf`
-// in CI and only blew up on the cluster:
-//
-//   - PR #7: "program of this type cannot use helper bpf_probe_read#4"
-//     (fentry forbids probe_read helpers).
-//   - PR #8: "permission denied: access beyond struct sock at off 1672 size
-//     4" (the C-level cast to struct tcp_sock didn't satisfy the BPF type
-//     system; bpf_skc_to_tcp_sock is the verifier-blessed narrowing).
-//
-// This binary is meant to be run inside a vmtest VM pinned to a kernel close
-// to the production target (Talos ships 6.18.x). It:
-//
-//  1. Loads the embedded BPF object via ebpf.LoadCollectionSpecFromReader.
-//  2. Calls ebpf.NewCollection — this is what walks the verifier and
-//     surfaces the per-program rejection messages.
-//  3. Attempts the same attach calls the production agent does (tcx ingress
-//     on `lo`, fentry/fexit on the tracing programs). Some failures only
-//     show up at attach time (e.g. missing kernel symbol), so loading alone
-//     is not sufficient.
-//  4. Reports SUCCESS / FAILURE per program with the underlying error text
-//     and exits non-zero if any program failed.
-//
-// The smoke does NOT exercise the programs with traffic — that is explicitly
-// out of scope (see issue #10). The goal is "verifier accepts and the kernel
-// has the symbols we need", not "the agent produces correct metrics".
+The agent monitors the **host** path an eGPU takes onto the bus. It does not
+report GPU PCIe byte counters: after VFIO passthrough, that DMA never hits
+the host kernel. Run DCGM or `nvidia-smi` **inside the GPU VM** for
+throughput, util, and VRAM.
+
+```mermaid
+flowchart LR
+  subgraph host["Host (netops-agent DaemonSet)"]
+    TP["fentry pci_bus_add_device / pci_stop_and_remove_bus_device"]
+    SYS["sysfs on scrape\nPCI link + AER + Thunderbolt"]
+    MAPS["PERCPU GPU-class add/remove counters"]
+    PROM["/metrics :9101"]
+    TP --> MAPS
+    SYS --> PROM
+    MAPS --> PROM
+  end
+
+  subgraph guest["GPU VM"]
+    DCGM["DCGM or nvidia-smi exporter"]
+    NVML["NVML PCIe TX/RX"]
+    NVML --> DCGM
+  end
+
+  GPU["eGPU over Thunderbolt"] --> SYS
+  GPU --> NVML
+  PROM --> Grafana
+  DCGM --> Grafana
+```
+
+## What is collected
+
+| Metric | Source | Notes |
+|---|---|---|
+| `netops_pci_device_present` | sysfs | GPU-class functions only (`0x03xxxx` display, `0x12xxxx` accelerator). Stays `0` after unplug. |
+| `netops_pci_link_speed_gtps` / `netops_pci_link_width` | sysfs | Negotiated link. Alert if below expected (e.g. not 8 GT/s × 4). |
+| `netops_pci_link_speed_max_gtps` / `netops_pci_link_width_max` | sysfs | Advertised cap; compare to negotiated for retrains. |
+| `netops_pci_aer_errors` | sysfs `aer_dev_*` | Omitted when AER files are absent. Snapshot of the status registers. |
+| `netops_pci_probe_total` / `netops_pci_remove_total` | eBPF fentry | Optional. Agent still runs if attach fails. |
+| `netops_thunderbolt_authorized` | sysfs | Enclosure authorization. |
+
+Labels: `slot`, `vendor`, `device`, `driver` (PCI); `id`, `name` (Thunderbolt).
+
+## Runtime
+
+- `NETOPS_SYSFS` — sysfs root. Default `/sys`. The DaemonSet mounts host `/sys` at `/host/sys` and sets this to `/host/sys`.
+- PCI BPF attach is best-effort. Sysfs gauges always register.
+
+Guest bandwidth (out of scope here): `DCGM_FI_PROF_PCIE_TX_BYTES` / `DCGM_FI_PROF_PCIE_RX_BYTES` or NVML `nvmlDeviceGetPcieThroughput`.

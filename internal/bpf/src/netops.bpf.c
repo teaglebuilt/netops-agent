@@ -5,8 +5,6 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
 
-char LICENSE[] SEC("license") = "GPL";
-
 struct sock_common {
     __be32 skc_daddr;
     __be32 skc_rcv_saddr;

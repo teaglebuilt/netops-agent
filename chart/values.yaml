@@ -38,6 +38,9 @@ metrics:
   hostPort: 9101
   scrapeAnnotations: true
 
+pcie:
+  sysfsRoot: /host/sys
+
 serviceAccount:
   create: true
   name: ""

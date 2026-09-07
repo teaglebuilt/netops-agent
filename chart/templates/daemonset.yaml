@@ -52,6 +52,8 @@ spec:
           image: {{ include "netops.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
+            - name: NETOPS_SYSFS
+              value: {{ .Values.pcie.sysfsRoot | default "/host/sys" | quote }}
             {{- with .Values.iface }}
             - name: NETOPS_DEVICE
               value: {{ . | quote }}
@@ -87,6 +89,9 @@ spec:
             - name: btf
               mountPath: /sys/kernel/btf
               readOnly: true
+            - name: host-sys
+              mountPath: {{ .Values.pcie.sysfsRoot | default "/host/sys" | quote }}
+              readOnly: true
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- if .Values.livenessProbe.enabled }}
@@ -113,4 +118,8 @@ spec:
         - name: btf
           hostPath:
             path: /sys/kernel/btf
+            type: Directory
+        - name: host-sys
+          hostPath:
+            path: /sys
             type: Directory

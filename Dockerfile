@@ -31,18 +31,20 @@ RUN set -eux; \
     test -d "/usr/include/${MULTIARCH}/asm" \
       || { echo "missing UAPI headers at /usr/include/${MULTIARCH}/asm" >&2; exit 1; }; \
     mkdir -p /out; \
-    clang \
-      -O2 -g -Wall -Werror \
-      -target bpf \
-      -D__TARGET_ARCH_${BPF_TARGET_ARCH} \
-      -I/usr/include/bpf \
-      -I/usr/include/${MULTIARCH} \
-      -c internal/bpf/src/netops.bpf.c \
-      -o /out/netops.bpf.o; \
-    llvm-strip -g /out/netops.bpf.o; \
-    llvm-readelf --section-headers /out/netops.bpf.o | grep -q '\.BTF' \
-      || { echo "BTF section missing from netops.bpf.o" >&2; exit 1; }; \
-    ls -l /out/netops.bpf.o
+    for src in netops trace_pcie; do \
+      clang \
+        -O2 -g -Wall -Werror \
+        -target bpf \
+        -D__TARGET_ARCH_${BPF_TARGET_ARCH} \
+        -I/usr/include/bpf \
+        -I/usr/include/${MULTIARCH} \
+        -c "internal/bpf/src/${src}.bpf.c" \
+        -o "/out/${src}.bpf.o"; \
+      llvm-strip -g "/out/${src}.bpf.o"; \
+      llvm-readelf --section-headers "/out/${src}.bpf.o" | grep -q '\.BTF' \
+        || { echo "BTF section missing from ${src}.bpf.o" >&2; exit 1; }; \
+    done; \
+    ls -l /out/*.bpf.o
 
 FROM --platform=${BUILDPLATFORM} ${GO_IMAGE} AS go-builder
 
@@ -60,6 +62,7 @@ COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 
 COPY --from=bpf-builder /out/netops.bpf.o ./internal/bpf/netops.bpf.o
+COPY --from=bpf-builder /out/trace_pcie.bpf.o ./internal/bpf/trace_pcie.bpf.o
 
 ARG TARGETARCH
 ARG VERSION=dev
@@ -69,7 +72,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,id=go-build-${TARGETARCH},target=/root/.cache/go-build,sharing=locked \
     set -eux; \
     export GOARCH="${TARGETARCH}"; \
-    go build -trimpath -ldflags="-s -w" -o /out/netops-agent ./cmd/agent; \
+    go build -trimpath -ldflags="-s -w" -o /out/netops-agent ./cmd/network; \
     go build -trimpath -ldflags="-s -w" -o /out/netops-smoke ./cmd/smoke; \
     ls -l /out
 
@@ -80,7 +83,7 @@ ARG REVISION=unknown
 ARG RUNTIME_IMAGE
 
 LABEL org.opencontainers.image.title="netops" \
-      org.opencontainers.image.description="eBPF network observability agent: tcx ingress byte counts, TCP retransmits, TCP sRTT and DNS latency histograms, exported as Prometheus metrics on :9101." \
+      org.opencontainers.image.description="eBPF network observability agent: tcx ingress byte counts, TCP retransmits, TCP sRTT and DNS latency histograms, plus host PCI/Thunderbolt GPU fabric gauges, exported as Prometheus metrics on :9101." \
       org.opencontainers.image.source="https://github.com/teaglebuilt/netops" \
       org.opencontainers.image.url="https://github.com/teaglebuilt/netops" \
       org.opencontainers.image.licenses="Apache-2.0" \
