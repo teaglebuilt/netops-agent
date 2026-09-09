@@ -92,7 +92,7 @@ func newPCICollector(sysfs string, r role, probeMap, removeMap *ebpf.Map) *pciCo
 func (c *pciCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.present
 	// Link, AER and Thunderbolt state only exists at the hypervisor. See role.
-	if c.role.exportsLinkState() {
+	if c.role.exportsHostFabricState() {
 		ch <- c.linkSpeed
 		ch <- c.linkWidth
 		ch <- c.maxSpeed
@@ -114,7 +114,7 @@ func (c *pciCollector) Collect(ch chan<- prometheus.Metric) {
 		slog.Warn("pci sysfs scan", "err", err)
 	}
 	var tb []pci.ThunderboltDevice
-	if c.role.exportsLinkState() {
+	if c.role.exportsHostFabricState() {
 		var tbErr error
 		tb, tbErr = pci.ScanThunderbolt(c.sysfs)
 		if tbErr != nil {
@@ -173,7 +173,7 @@ func (c *pciCollector) emitDevice(ch chan<- prometheus.Metric, d pci.Device, pre
 	ch <- prometheus.MustNewConstMetric(c.present, prometheus.GaugeValue, present, labels...)
 	// In a guest the remaining registers are QEMU's invention, not the device's.
 	// Presence is the one fact this vantage point actually establishes.
-	if !c.role.exportsLinkState() {
+	if !c.role.exportsHostFabricState() {
 		return
 	}
 	if present == 0 {
