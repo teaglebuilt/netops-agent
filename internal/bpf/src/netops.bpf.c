@@ -5,6 +5,10 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_endian.h>
 
+/* Required: bpf_skc_to_tcp_sock and struct tcp_sock access are GPL-only.
+   Without this section the verifier rejects record_tcp_srtt at load time. */
+char LICENSE[] SEC("license") = "GPL";
+
 struct sock_common {
     __be32 skc_daddr;
     __be32 skc_rcv_saddr;

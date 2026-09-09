@@ -43,6 +43,8 @@ RUN set -eux; \
       llvm-strip -g "/out/${src}.bpf.o"; \
       llvm-readelf --section-headers "/out/${src}.bpf.o" | grep -q '\.BTF' \
         || { echo "BTF section missing from ${src}.bpf.o" >&2; exit 1; }; \
+      llvm-readelf --section-headers "/out/${src}.bpf.o" | grep -qw 'license' \
+        || { echo "license section missing from ${src}.bpf.o -- GPL-only helpers (bpf_skc_to_tcp_sock, struct tcp_sock access) will be rejected by the verifier at load time" >&2; exit 1; }; \
     done; \
     ls -l /out/*.bpf.o
 

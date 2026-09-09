@@ -79,3 +79,26 @@ Reading notes:
 | --- | --- | --- | --- |
 | `NETOPS_DEVICE` | `iface` | *(auto)* | Interface for the tcx ingress program. Empty discovers the default-route NIC from `/proc/net/route`. |
 | `NETOPS_SYSFS` | `pcie.sysfsRoot` | `/host/sys` | Host sysfs mount used by the PCIe/Thunderbolt scan. |
+
+## Pod Security
+
+The DaemonSet is a host sensor. It will never pass Pod Security Standard
+`restricted`: it uses `hostNetwork`, `hostPath` (`/sys/fs/bpf`, `/sys/kernel/btf`,
+`/sys`), `runAsUser: 0`, and `CAP_BPF` / `CAP_PERFMON` / `CAP_NET_ADMIN` /
+`CAP_SYS_ADMIN`. `allowPrivilegeEscalation` is false and capabilities are
+dropped-then-added; that is as far as restricted can be stretched without
+breaking attach.
+
+Install into a namespace labeled privileged, or kubectl will warn (and deny if
+`enforce=restricted`):
+
+```bash
+kubectl label namespace netops \
+  pod-security.kubernetes.io/enforce=privileged \
+  pod-security.kubernetes.io/audit=privileged \
+  pod-security.kubernetes.io/warn=privileged \
+  --overwrite
+```
+
+`hostPort` is off by default. With `hostNetwork`, the metrics server already
+listens on the host's `:9101`; `hostPort` only adds a restricted-PSS violation.

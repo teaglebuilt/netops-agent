@@ -1,0 +1,24 @@
+The netops sensor is a host eBPF DaemonSet. It cannot run under Pod Security
+Standard `restricted` (hostNetwork, hostPath bpffs/btf/sysfs, CAP_BPF /
+CAP_PERFMON / CAP_NET_ADMIN / CAP_SYS_ADMIN, runAsUser 0).
+
+If you saw:
+  would violate PodSecurity "restricted:latest"
+the release namespace is warning or enforcing restricted. Label it privileged:
+
+  kubectl label namespace {{ .Release.Namespace }} \
+    pod-security.kubernetes.io/enforce=privileged \
+    pod-security.kubernetes.io/audit=privileged \
+    pod-security.kubernetes.io/warn=privileged \
+    --overwrite
+
+Or set podSecurity.manageNamespace=true so this chart owns the Namespace and
+applies those labels. Do not co-locate untrusted workloads in that namespace.
+
+Metrics: hostNetwork binds :{{ .Values.metrics.port }} on each node. Prometheus
+can scrape via the pod IP (prometheus.io/scrape annotations
+{{- if .Values.metrics.scrapeAnnotations }} are on{{- else }} are off{{- end }}).
+{{- if gt (int .Values.metrics.hostPort) 0 }}
+hostPort {{ .Values.metrics.hostPort }} is set; it is redundant with hostNetwork
+and will keep triggering the hostPort PSS warning.
+{{- end }}

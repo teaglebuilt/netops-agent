@@ -1,3 +1,4 @@
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -70,7 +71,9 @@ spec:
               protocol: TCP
           securityContext:
             privileged: false
+            allowPrivilegeEscalation: false
             runAsUser: 0
+            runAsNonRoot: false
             {{- if .Values.seccompProfile }}
             seccompProfile:
               {{- toYaml .Values.seccompProfile | nindent 14 }}

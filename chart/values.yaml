@@ -3,15 +3,14 @@ nameOverride: ""
 fullnameOverride: ""
 
 image:
-  repository: ghcr.io/teaglebuilt/netops-tool
-  tag: ""
-  pullPolicy: IfNotPresent
-imagePullSecrets: []
+  repository: ghcr.io/teaglebuilt/netops-agent
+  tag: dev
+  pullPolicy: Always
 
-# Interface for the tcx ingress program. Leave empty on Linux nodes: the agent
-# discovers the default-route NIC from /proc/net/route. Set only to override.
-# (The Go binary reads NETOPS_DEVICE.)
-iface: ""
+imagePullSecrets:
+  - name: ghcr-secret
+
+iface: "" # /proc/net/route
 
 priorityClassName: ""
 extraEnv: []
@@ -35,8 +34,17 @@ resources:
 
 metrics:
   port: 9101
-  hostPort: 9101
+  # 0 = omit hostPort. hostNetwork already binds containerPort on the host,
+  # and hostPort is a restricted-PSS violation on its own.
+  hostPort: 0
   scrapeAnnotations: true
+
+podSecurity:
+  manageNamespace: false
+  namespaceLabels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
 
 pcie:
   sysfsRoot: /host/sys

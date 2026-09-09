@@ -1,5 +1,7 @@
 IMAGE       ?= ghcr.io/teaglebuilt/netops-agent
-TAG         ?= dev
+GIT_SHA     := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+GIT_DIRTY   := $(shell test -n "$$(git status --porcelain 2>/dev/null)" && echo -dirty)
+TAG         ?= $(GIT_SHA)$(GIT_DIRTY)
 PLATFORM    ?= linux/amd64
 
 .PHONY: help
@@ -20,14 +22,26 @@ internal/bpf/trace_pcie.bpf.o: internal/bpf/src/trace_pcie.bpf.c
 
 .PHONY: build
 build:
-	docker buildx build --platform=$(PLATFORM) --load -t $(IMAGE):$(TAG) .
+	docker buildx build --no-cache --platform=$(PLATFORM) --load \
+		--build-arg VERSION=$(TAG) \
+		--build-arg REVISION=$(GIT_SHA)$(GIT_DIRTY) \
+		-t $(IMAGE):$(TAG) .
 
 .PHONY: push
 push:
 	docker push $(IMAGE):$(TAG)
 
-.PHONY: test
-test: bpf
+.PHONY: image
+image:
+	@echo $(IMAGE):$(TAG)
+
+.PHONY: digest
+digest:
+	@docker buildx imagetools inspect $(IMAGE):$(TAG) --raw \
+	  | python3 -c "import sys,json;print(next(m['digest'] for m in json.load(sys.stdin)['manifests'] if m.get('platform',{}).get('architecture')=='$(word 2,$(subst /, ,$(PLATFORM)))'))"
+
+.PHONY: smoke-test
+smoke-test: bpf
 	CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/test ./cmd/test
 
 .PHONY: tidy
