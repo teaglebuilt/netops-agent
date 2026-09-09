@@ -13,6 +13,34 @@ const (
 	pciBaseClassProcessingAccel = 0x12
 )
 
+// emulatedVendors are vendor IDs whose display-class functions are virtual
+// adapters rather than real GPUs. Every QEMU/KVM guest presents one -- Bochs
+// VGA at 0x1234:0x1111 -- so a class-only scan reports a "GPU" on every VM in
+// the fleet and detects nothing.
+var emulatedVendors = map[uint16]string{
+	0x1234: "bochs-vga",
+	0x1af4: "virtio-gpu",
+	0x15ad: "vmware-svga",
+	0x1013: "cirrus",
+	0x1b36: "qxl",
+}
+
+// LinkWidthValid reports whether a sysfs link width is a real lane count.
+// PCIe widths are powers of two up to x32; the all-ones values the kernel
+// prints when the width is unknown (0x3F in a guest, 0xFF on a host) are not.
+func LinkWidthValid(w uint32) bool {
+	return w > 0 && w <= 32
+}
+
+// IsEmulatedVendor reports whether a PCI vendor ID belongs to a virtual display
+// adapter. This is a denylist rather than an allowlist on purpose: an unknown
+// vendor is assumed real, so a new AMD, Intel or NVIDIA part is never silently
+// dropped from the inventory.
+func IsEmulatedVendor(vendor uint16) bool {
+	_, ok := emulatedVendors[vendor]
+	return ok
+}
+
 // Device is a display or processing-accelerator PCI function observed via sysfs.
 type Device struct {
 	Slot             string
@@ -28,6 +56,15 @@ type Device struct {
 	AERNonFatal      uint64
 	AERFatal         uint64
 	HasAER           bool
+	// HasLink / HasMaxLink record whether the PCIe link registers were actually
+	// readable. They frequently are not: a Thunderbolt-tunnelled endpoint has no
+	// native PCIe link, so current_link_* read EINVAL and max_link_* report the
+	// unknown sentinels ("Unknown", 255). A guest VM reports its own sentinel
+	// (63) for a passed-through function. Emitting those as 0 GT/s and 255 lanes
+	// reads as a catastrophically degraded link on healthy hardware, so the
+	// collector suppresses the series instead.
+	HasLink    bool
+	HasMaxLink bool
 }
 
 // ThunderboltDevice is a Thunderbolt/USB4 device with an authorization state.
@@ -37,7 +74,8 @@ type ThunderboltDevice struct {
 	Authorized bool
 }
 
-// ScanGPUs lists GPU-class PCI functions under sysfsRoot (usually /sys or /host/sys).
+// ScanGPUs lists GPU-class PCI functions under sysfsRoot (usually /sys or
+// /host/sys), excluding emulated display adapters -- see IsEmulatedVendor.
 func ScanGPUs(sysfsRoot string) ([]Device, error) {
 	dir := filepath.Join(sysfsRoot, "bus", "pci", "devices")
 	entries, err := os.ReadDir(dir)
@@ -63,6 +101,9 @@ func ScanGPUs(sysfsRoot string) ([]Device, error) {
 		if err != nil {
 			continue
 		}
+		if IsEmulatedVendor(uint16(vendor)) {
+			continue
+		}
 		device, err := readHexFile(filepath.Join(devDir, "device"), 16)
 		if err != nil {
 			continue
@@ -79,6 +120,9 @@ func ScanGPUs(sysfsRoot string) ([]Device, error) {
 		d.MaxLinkSpeedGTPS = readLinkSpeed(filepath.Join(devDir, "max_link_speed"))
 		d.LinkWidth = readUintFile(filepath.Join(devDir, "current_link_width"))
 		d.MaxLinkWidth = readUintFile(filepath.Join(devDir, "max_link_width"))
+
+		d.HasLink = d.LinkSpeedGTPS > 0 && LinkWidthValid(d.LinkWidth)
+		d.HasMaxLink = d.MaxLinkSpeedGTPS > 0 && LinkWidthValid(d.MaxLinkWidth)
 
 		corr, corrOK := tryReadUintFile(filepath.Join(devDir, "aer_dev_correctable"))
 		nonfatal, nfOK := tryReadUintFile(filepath.Join(devDir, "aer_dev_nonfatal"))

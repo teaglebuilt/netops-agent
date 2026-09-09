@@ -175,3 +175,61 @@ func mustSymlink(t *testing.T, link, target string) {
 		t.Fatal(err)
 	}
 }
+
+func TestScanGPUsSkipsEmulatedAdapters(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// Bochs VGA: display class, present in every QEMU guest, not a GPU.
+	writePCI(t, root, "0000:00:01.0", map[string]string{
+		"vendor": "0x1234",
+		"device": "0x1111",
+		"class":  "0x030000",
+	})
+	// Real passed-through NVIDIA function on the same bus.
+	writePCI(t, root, "0000:01:00.0", map[string]string{
+		"vendor": "0x10de",
+		"device": "0x2783",
+		"class":  "0x030000",
+	})
+
+	devs, err := ScanGPUs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devs) != 1 {
+		t.Fatalf("got %d devices, want 1 (emulated VGA should be skipped)", len(devs))
+	}
+	if devs[0].Vendor != 0x10de {
+		t.Errorf("vendor = 0x%04x, want 0x10de", devs[0].Vendor)
+	}
+}
+
+func TestIsEmulatedVendor(t *testing.T) {
+	t.Parallel()
+	for _, v := range []uint16{0x1234, 0x1af4, 0x15ad, 0x1013, 0x1b36} {
+		if !IsEmulatedVendor(v) {
+			t.Errorf("0x%04x should be emulated", v)
+		}
+	}
+	// Unknown vendors are assumed real so new hardware is never dropped.
+	for _, v := range []uint16{0x10de, 0x1002, 0x8086, 0xabcd} {
+		if IsEmulatedVendor(v) {
+			t.Errorf("0x%04x should not be emulated", v)
+		}
+	}
+}
+
+func TestLinkWidthValid(t *testing.T) {
+	t.Parallel()
+	for _, w := range []uint32{1, 2, 4, 8, 16, 32} {
+		if !LinkWidthValid(w) {
+			t.Errorf("x%d should be valid", w)
+		}
+	}
+	// 0 = unreadable, 63 = guest sentinel (0x3F), 255 = host sentinel (0xFF).
+	for _, w := range []uint32{0, 63, 255} {
+		if LinkWidthValid(w) {
+			t.Errorf("x%d should be rejected as a sentinel", w)
+		}
+	}
+}

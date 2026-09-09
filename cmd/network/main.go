@@ -261,8 +261,9 @@ func run() error {
 	}
 
 	sysfs := sysfsRoot()
-	slog.Info("pci fabric collector", "sysfs", sysfs)
-	prometheus.MustRegister(newPCICollector(sysfs, probeMap, removeMap))
+	r := agentRole()
+	slog.Info("pci fabric collector", "sysfs", sysfs, "role", string(r))
+	prometheus.MustRegister(newPCICollector(sysfs, r, probeMap, removeMap))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

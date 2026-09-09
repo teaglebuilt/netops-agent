@@ -48,6 +48,19 @@ podSecurity:
 
 pcie:
   sysfsRoot: /host/sys
+  # Vantage point for the PCI fabric. VFIO passthrough splits the signals in
+  # two and neither side can see the other's.
+  #
+  # "guest" (this DaemonSet, running on Talos VMs): QEMU synthesises the
+  # passed-through function's link and AER registers -- a healthy card reports
+  # 0 GT/s and 63 lanes -- so only device presence is exported. That single
+  # gauge is the half of the picture the hypervisor cannot see: whether the VM
+  # actually received the device.
+  #
+  # "host" (a second instance on each Proxmox host, outside this chart): real
+  # trained link speed/width, AER status, and the Thunderbolt bus an eGPU
+  # enclosure attaches over. See docs/index.md.
+  role: guest
 
 serviceAccount:
   create: true

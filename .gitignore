@@ -28,3 +28,6 @@ coverage.txt
 
 # Per-session git worktrees
 .worktrees/
+
+dist/
+ansible/inventory.ini

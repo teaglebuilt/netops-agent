@@ -13,6 +13,7 @@ import (
 
 type pciCollector struct {
 	sysfs     string
+	role      role
 	probeMap  *ebpf.Map
 	removeMap *ebpf.Map
 
@@ -31,10 +32,11 @@ type pciCollector struct {
 	seenTB  map[string]pci.ThunderboltDevice
 }
 
-func newPCICollector(sysfs string, probeMap, removeMap *ebpf.Map) *pciCollector {
+func newPCICollector(sysfs string, r role, probeMap, removeMap *ebpf.Map) *pciCollector {
 	deviceLabels := []string{"slot", "vendor", "device", "driver"}
 	return &pciCollector{
 		sysfs:     sysfs,
+		role:      r,
 		probeMap:  probeMap,
 		removeMap: removeMap,
 		present: prometheus.NewDesc(
@@ -89,12 +91,15 @@ func newPCICollector(sysfs string, probeMap, removeMap *ebpf.Map) *pciCollector 
 
 func (c *pciCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.present
-	ch <- c.linkSpeed
-	ch <- c.linkWidth
-	ch <- c.maxSpeed
-	ch <- c.maxWidth
-	ch <- c.aer
-	ch <- c.tbAuth
+	// Link, AER and Thunderbolt state only exists at the hypervisor. See role.
+	if c.role.exportsLinkState() {
+		ch <- c.linkSpeed
+		ch <- c.linkWidth
+		ch <- c.maxSpeed
+		ch <- c.maxWidth
+		ch <- c.aer
+		ch <- c.tbAuth
+	}
 	if c.probeMap != nil {
 		ch <- c.probeTotal
 	}
@@ -108,9 +113,13 @@ func (c *pciCollector) Collect(ch chan<- prometheus.Metric) {
 	if err != nil {
 		slog.Warn("pci sysfs scan", "err", err)
 	}
-	tb, tbErr := pci.ScanThunderbolt(c.sysfs)
-	if tbErr != nil {
-		slog.Warn("thunderbolt sysfs scan", "err", tbErr)
+	var tb []pci.ThunderboltDevice
+	if c.role.exportsLinkState() {
+		var tbErr error
+		tb, tbErr = pci.ScanThunderbolt(c.sysfs)
+		if tbErr != nil {
+			slog.Warn("thunderbolt sysfs scan", "err", tbErr)
+		}
 	}
 
 	c.mu.Lock()
@@ -162,15 +171,27 @@ func (c *pciCollector) Collect(ch chan<- prometheus.Metric) {
 func (c *pciCollector) emitDevice(ch chan<- prometheus.Metric, d pci.Device, present float64) {
 	labels := []string{d.Slot, fmt.Sprintf("0x%04x", d.Vendor), fmt.Sprintf("0x%04x", d.Device), d.Driver}
 	ch <- prometheus.MustNewConstMetric(c.present, prometheus.GaugeValue, present, labels...)
-	if present == 0 {
-		ch <- prometheus.MustNewConstMetric(c.linkSpeed, prometheus.GaugeValue, 0, labels...)
-		ch <- prometheus.MustNewConstMetric(c.linkWidth, prometheus.GaugeValue, 0, labels...)
+	// In a guest the remaining registers are QEMU's invention, not the device's.
+	// Presence is the one fact this vantage point actually establishes.
+	if !c.role.exportsLinkState() {
 		return
 	}
-	ch <- prometheus.MustNewConstMetric(c.linkSpeed, prometheus.GaugeValue, d.LinkSpeedGTPS, labels...)
-	ch <- prometheus.MustNewConstMetric(c.linkWidth, prometheus.GaugeValue, float64(d.LinkWidth), labels...)
-	ch <- prometheus.MustNewConstMetric(c.maxSpeed, prometheus.GaugeValue, d.MaxLinkSpeedGTPS, labels...)
-	ch <- prometheus.MustNewConstMetric(c.maxWidth, prometheus.GaugeValue, float64(d.MaxLinkWidth), labels...)
+	if present == 0 {
+		// device_present already carries the fact. Publishing 0 GT/s for a device
+		// that is simply gone would be indistinguishable from a trained-down link.
+		return
+	}
+	// Only publish link state the kernel actually reported. A Thunderbolt-tunnelled
+	// endpoint has no native PCIe link: current_link_* read EINVAL and max_link_*
+	// return "Unknown"/255. Those are absent measurements, not slow ones.
+	if d.HasLink {
+		ch <- prometheus.MustNewConstMetric(c.linkSpeed, prometheus.GaugeValue, d.LinkSpeedGTPS, labels...)
+		ch <- prometheus.MustNewConstMetric(c.linkWidth, prometheus.GaugeValue, float64(d.LinkWidth), labels...)
+	}
+	if d.HasMaxLink {
+		ch <- prometheus.MustNewConstMetric(c.maxSpeed, prometheus.GaugeValue, d.MaxLinkSpeedGTPS, labels...)
+		ch <- prometheus.MustNewConstMetric(c.maxWidth, prometheus.GaugeValue, float64(d.MaxLinkWidth), labels...)
+	}
 	if d.HasAER {
 		ch <- prometheus.MustNewConstMetric(c.aer, prometheus.GaugeValue, float64(d.AERCorrectable), d.Slot, fmt.Sprintf("0x%04x", d.Vendor), fmt.Sprintf("0x%04x", d.Device), d.Driver, "correctable")
 		ch <- prometheus.MustNewConstMetric(c.aer, prometheus.GaugeValue, float64(d.AERNonFatal), d.Slot, fmt.Sprintf("0x%04x", d.Vendor), fmt.Sprintf("0x%04x", d.Device), d.Driver, "nonfatal")

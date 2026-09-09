@@ -35,6 +35,16 @@ push:
 image:
 	@echo $(IMAGE):$(TAG)
 
+# extract binary for proxmox host. running on systemD instead of a daemonset
+.PHONY: dist
+dist: build
+	@mkdir -p dist
+	@cid=$$(docker create $(IMAGE):$(TAG)); \
+	docker cp $$cid:/usr/local/bin/netops-agent dist/netops-agent >/dev/null; \
+	docker rm $$cid >/dev/null
+	@chmod +x dist/netops-agent
+	@ls -l dist/netops-agent
+
 .PHONY: digest
 digest:
 	@docker buildx imagetools inspect $(IMAGE):$(TAG) --raw \
@@ -63,3 +73,4 @@ helm-template:
 .PHONY: clean
 clean:
 	rm -f internal/bpf/*.o
+	rm -rf dist

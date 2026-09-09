@@ -55,6 +55,8 @@ spec:
           env:
             - name: NETOPS_SYSFS
               value: {{ .Values.pcie.sysfsRoot | default "/host/sys" | quote }}
+            - name: NETOPS_ROLE
+              value: {{ .Values.pcie.role | default "guest" | quote }}
             {{- with .Values.iface }}
             - name: NETOPS_DEVICE
               value: {{ . | quote }}
