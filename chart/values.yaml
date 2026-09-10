@@ -38,6 +38,8 @@ metrics:
   # and hostPort is a restricted-PSS violation on its own.
   hostPort: 0
   scrapeAnnotations: true
+  serviceMonitor:
+    enabled: false
 
 podSecurity:
   manageNamespace: false
@@ -57,9 +59,10 @@ pcie:
   # gauge is the half of the picture the hypervisor cannot see: whether the VM
   # actually received the device.
   #
-  # "host" (a second instance on each Proxmox host, outside this chart): real
-  # trained link speed/width, AER status, and the Thunderbolt bus an eGPU
-  # enclosure attaches over. See docs/index.md.
+  # "host" (a second instance on each Proxmox host, outside this chart): AER
+  # status and the Thunderbolt bus an eGPU enclosure attaches over. Link
+  # speed/width only apply to natively-slotted cards -- a Thunderbolt eGPU has
+  # no trained PCIe link to measure. See docs/index.md.
   role: guest
 
 serviceAccount:

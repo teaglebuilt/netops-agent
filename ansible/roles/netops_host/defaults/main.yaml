@@ -1,8 +1,10 @@
 ---
 # Vantage point. On a hypervisor this is always "host": sysfs here exposes the
-# real trained PCIe link, the AER status registers, and the Thunderbolt bus an
-# eGPU enclosure attaches over. The Talos DaemonSet runs the same binary with
-# role=guest, which publishes device presence only. See docs/index.md.
+# AER status registers and the Thunderbolt bus an eGPU enclosure attaches
+# over. Link speed/width only apply to natively-slotted cards -- a Thunderbolt
+# eGPU has no trained PCIe link to measure. The Talos DaemonSet runs the same
+# binary with role=guest, which publishes device presence only. See
+# docs/index.md.
 netops_role: host
 
 netops_bin_src: "{{ playbook_dir }}/../../dist/netops-agent"
