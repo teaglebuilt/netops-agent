@@ -38,6 +38,8 @@ metrics:
   # and hostPort is a restricted-PSS violation on its own.
   hostPort: 0
   scrapeAnnotations: true
+  serviceMonitor:
+    enabled: false
 
 podSecurity:
   manageNamespace: false

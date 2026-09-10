@@ -1,8 +1,32 @@
 # Netops Agent
 
-A per-node eBPF sensor for Talos Linux Kubernetes nodes. It attaches a small set
-of BPF programs to the host kernel, reads the host `sysfs` mount for PCIe and
-Thunderbolt state, and exports everything as Prometheus metrics on `:9101`.
+A per node daemonset watching network traffic and exposing as metrics for prometheus.
+
+## Overview
+
+
+```
+┌────────────────────────────────────────────────┐
+│ Node (×6: 3 CP + 3 worker)                     │
+│                                                │
+│  ┌───────────────┐    attach    ┌───────────┐  │
+│  │ netscope-     │─────────────▶│ kernel    │  │
+│  │ agent (pod)   │              │  tcx rx   │  │
+│  │ hostNetwork   │              │  fentry×3 │  │
+│  │ UID 0 / BPF + │              │  fexit×1  │  │
+│  │ PERFMON +     │◀─────────────│           │  │
+│  │ NET_ADMIN +   │  BPF maps    └───────────┘  │
+│  │ SYS_ADMIN     │                             │
+│  └───────┬───────┘                             │
+│          │ :9101/metrics (hostPort)            │
+└──────────┼─────────────────────────────────────┘
+           │
+           ▼
+   ┌───────────────┐       ┌─────────────┐
+   │ Prometheus    │──────▶│ Grafana     │
+   │ (kps)         │       │ dashboard   │
+   └───────────────┘       └─────────────┘
+```
 
 ## Metrics
 

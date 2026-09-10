@@ -1,0 +1,29 @@
+{{- if .Values.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: netops-agent
+  namespace: netops
+  labels:
+    release: kube-prometheus-stack
+    app.kubernetes.io/name: netops
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: netops
+      app.kubernetes.io/component: agent
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: nodename
+          action: replace
+      metricRelabelings:
+        - action: labeldrop
+          regex: pod
+{{- end }}

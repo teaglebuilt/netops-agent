@@ -6,56 +6,56 @@ metadata:
   namespace: observability
 spec:
   groups:
-    - name: netscope-agent
+    - name: netops-agent
       rules:
-        - alert: NetscopeAgentDown
-          expr: up{job="netscope-agent"} == 0
+        - alert: netopsAgentDown
+          expr: up{job="netops-agent"} == 0
           for: 5m
           labels:
             severity: warning
           annotations:
-            summary: "netscope agent on {{ $labels.nodename }} is unreachable"
+            summary: "netops agent on {{ $labels.nodename }} is unreachable"
             description: >
-              Prometheus has been unable to scrape the netscope agent on node {{ $labels.nodename }} (namespace {{ $labels.namespace }}) for 5+ minutes. The pod is down, the /metrics endpoint is failing, or hostNetwork port 9101 is blocked. Check: kubectl -n {{ $labels.namespace }} get pods -l app.kubernetes.io/name=netscope -o wide
-        - alert: NetscopeMetricsAbsent
-          expr: absent(netscope_rx_bytes_total)
+              Prometheus has been unable to scrape the netops agent on node {{ $labels.nodename }} (namespace {{ $labels.namespace }}) for 5+ minutes. The pod is down, the /metrics endpoint is failing, or hostNetwork port 9101 is blocked. Check: kubectl -n {{ $labels.namespace }} get pods -l app.kubernetes.io/name=netops -o wide
+        - alert: netopsMetricsAbsent
+          expr: absent(netops_rx_bytes_total)
           for: 10m
           labels:
             severity: critical
           annotations:
-            summary: "netscope metrics absent cluster-wide"
+            summary: "netops metrics absent cluster-wide"
             description: >
-              No `netscope_rx_bytes_total` series has been observed by Prometheus for 10+ minutes. Either every DaemonSet pod is down or the ServiceMonitor is no longer discovering targets. Check: kubectl -n netscope-stage get servicemonitor,pods
+              No `netops_rx_bytes_total` series has been observed by Prometheus for 10+ minutes. Either every DaemonSet pod is down or the ServiceMonitor is no longer discovering targets. Check: kubectl -n netops-stage get servicemonitor,pods
 
-        - alert: NetscopeAgentRestarts
+        - alert: netopsAgentRestarts
           expr: >
-            increase(kube_pod_container_status_restarts_total{namespace=~"netscope.*",pod=~"netscope-agent.*"}[15m]) > 0
+            increase(kube_pod_container_status_restarts_total{namespace=~"netops.*",pod=~"netops-agent.*"}[15m]) > 0
           labels:
             severity: warning
           annotations:
-            summary: "netscope agent pod {{ $labels.pod }} restarted"
+            summary: "netops agent pod {{ $labels.pod }} restarted"
             description: >
-              netscope-agent pod {{ $labels.pod }} in namespace {{ $labels.namespace }} restarted {{ $value }} time(s) in the last 15 minutes. eBPF attach failures usually manifest as startup crashes — soak validity is in question. Check: kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} --previous
+              netops-agent pod {{ $labels.pod }} in namespace {{ $labels.namespace }} restarted {{ $value }} time(s) in the last 15 minutes. eBPF attach failures usually manifest as startup crashes — soak validity is in question. Check: kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} --previous
 
-    - name: netscope-network
+    - name: netops-network
       rules:
-        - alert: NetscopeHighRetransmits
-          expr: sum by (nodename) (rate(netscope_tcp_retransmits_total[5m])) > 5
+        - alert: netopsHighRetransmits
+          expr: sum by (nodename) (rate(netops_tcp_retransmits_total[5m])) > 5
           for: 15m
           labels:
             severity: warning
           annotations:
             summary: "High TCP retransmit rate on {{ $labels.nodename }} ({{ $value | humanize }}/s)"
             description: >
-              Node {{ $labels.nodename }} has sustained TCP retransmits at {{ $value | humanize }}/s for 15+ minutes (threshold: 5/s). Observed baseline is ~0.2–2.2/s. Investigate link health, switch port errors, or a noisy workload generating retransmits. Cross-reference: netscope_tcp_srtt_microseconds for the same node.
+              Node {{ $labels.nodename }} has sustained TCP retransmits at {{ $value | humanize }}/s for 15+ minutes (threshold: 5/s). Observed baseline is ~0.2–2.2/s. Investigate link health, switch port errors, or a noisy workload generating retransmits. Cross-reference: netops_tcp_srtt_microseconds for the same node.
 
-        - alert: NetscopeDNSLatencyHigh
+        - alert: netopsDNSLatencyHigh
           expr: >
-            histogram_quantile(0.99, sum by (le) (rate(netscope_dns_query_microseconds_bucket[5m]))) > 2
+            histogram_quantile(0.99, sum by (le) (rate(netops_dns_query_microseconds_bucket[5m]))) > 2
           for: 10m
           labels:
             severity: warning
           annotations:
           summary: "DNS query p99 latency > 2s ({{ $value | humanizeDuration }})"
           description: >
-              Cluster-wide p99 DNS query latency observed by netscope is {{ $value | humanizeDuration }} for 10+ minutes (threshold: 2s). Validation baseline was ~0.84s. Check CoreDNS pod health, upstream resolvers, and any recent NetworkPolicy changes affecting egress to kube-dns
+              Cluster-wide p99 DNS query latency observed by netops is {{ $value | humanizeDuration }} for 10+ minutes (threshold: 2s). Validation baseline was ~0.84s. Check CoreDNS pod health, upstream resolvers, and any recent NetworkPolicy changes affecting egress to kube-dns
