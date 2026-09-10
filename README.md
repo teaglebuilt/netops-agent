@@ -10,7 +10,7 @@ A per node daemonset watching network traffic and exposing as metrics for promet
 │ Node (×6: 3 CP + 3 worker)                     │
 │                                                │
 │  ┌───────────────┐    attach    ┌───────────┐  │
-│  │ netscope-     │─────────────▶│ kernel    │  │
+│  │ netops-     │─────────────▶│ kernel    │  │
 │  │ agent (pod)   │              │  tcx rx   │  │
 │  │ hostNetwork   │              │  fentry×3 │  │
 │  │ UID 0 / BPF + │              │  fexit×1  │  │
