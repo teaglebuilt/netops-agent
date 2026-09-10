@@ -11,11 +11,11 @@ flowchart TB
         dnsqprog["record_dns_query<br/>SEC fentry/udp_sendmsg<br/>dport==53: stash start ts by 4-tuple"]
         dnsrprog["record_dns_response<br/>SEC fexit/udp_recvmsg<br/>ret>0 & dport==53: delta -> log2 bucket"]
 
-        rxmap[("netscope_rx_bytes<br/>PERCPU_ARRAY[1]")]
-        retxmap[("netscope_tcp_retransmits<br/>PERCPU_ARRAY[1]")]
-        srttmap[("netscope_tcp_srtt_buckets<br/>PERCPU_ARRAY[24]")]
-        dnsstarts[("netscope_dns_query_starts<br/>HASH[8192] 4-tuple -> ns")]
-        dnsmap[("netscope_dns_latency_buckets<br/>PERCPU_ARRAY[24]")]
+        rxmap[("netops_rx_bytes<br/>PERCPU_ARRAY[1]")]
+        retxmap[("netops_tcp_retransmits<br/>PERCPU_ARRAY[1]")]
+        srttmap[("netops_tcp_srtt_buckets<br/>PERCPU_ARRAY[24]")]
+        dnsstarts[("netops_dns_query_starts<br/>HASH[8192] 4-tuple -> ns")]
+        dnsmap[("netops_dns_latency_buckets<br/>PERCPU_ARRAY[24]")]
 
         nic --> rxprog --> rxmap
         retxprog --> retxmap
