@@ -1,9 +1,14 @@
+{{- if .Values.metrics.alerts.enabled }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: netops-alerts
   namespace: observability
+  labels:
+    release: kube-prometheus-stack
+    app.kubernetes.io/name: netops
+    app.kubernetes.io/component: agent
 spec:
   groups:
     - name: netops-agent
@@ -14,9 +19,9 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "netops agent on {{ $labels.nodename }} is unreachable"
+            summary: "netops agent on  is unreachable"
             description: >
-              Prometheus has been unable to scrape the netops agent on node {{ $labels.nodename }} (namespace {{ $labels.namespace }}) for 5+ minutes. The pod is down, the /metrics endpoint is failing, or hostNetwork port 9101 is blocked. Check: kubectl -n {{ $labels.namespace }} get pods -l app.kubernetes.io/name=netops -o wide
+              Prometheus has been unable to scrape the netops agent on node  (namespace ) for 5+ minutes. The pod is down, the /metrics endpoint is failing, or hostNetwork port 9101 is blocked. Check: kubectl -n nameapcse get pods -l app.kubernetes.io/name=netops -o wide
         - alert: netopsMetricsAbsent
           expr: absent(netops_rx_bytes_total)
           for: 10m
@@ -33,9 +38,9 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "netops agent pod {{ $labels.pod }} restarted"
+            summary: "netops agent pod pod restarted"
             description: >
-              netops-agent pod {{ $labels.pod }} in namespace {{ $labels.namespace }} restarted {{ $value }} time(s) in the last 15 minutes. eBPF attach failures usually manifest as startup crashes — soak validity is in question. Check: kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} --previous
+              netops-agent pod pod in namespace restarted {{ $value }} time(s) in the last 15 minutes. eBPF attach failures usually manifest as startup crashes — soak validity is in question. Check: kubectl -n namespace logs pod --previous
 
     - name: netops-network
       rules:
@@ -45,9 +50,9 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "High TCP retransmit rate on {{ $labels.nodename }} ({{ $value | humanize }}/s)"
+            summary: "High TCP retransmit rate on  ({{ $value | humanize }}/s)"
             description: >
-              Node {{ $labels.nodename }} has sustained TCP retransmits at {{ $value | humanize }}/s for 15+ minutes (threshold: 5/s). Observed baseline is ~0.2–2.2/s. Investigate link health, switch port errors, or a noisy workload generating retransmits. Cross-reference: netops_tcp_srtt_microseconds for the same node.
+              Node  has sustained TCP retransmits at {{ $value | humanize }}/s for 15+ minutes (threshold: 5/s). Observed baseline is ~0.2–2.2/s. Investigate link health, switch port errors, or a noisy workload generating retransmits. Cross-reference: netops_tcp_srtt_microseconds for the same node.
 
         - alert: netopsDNSLatencyHigh
           expr: >
@@ -59,3 +64,4 @@ spec:
           summary: "DNS query p99 latency > 2s ({{ $value | humanizeDuration }})"
           description: >
               Cluster-wide p99 DNS query latency observed by netops is {{ $value | humanizeDuration }} for 10+ minutes (threshold: 2s). Validation baseline was ~0.84s. Check CoreDNS pod health, upstream resolvers, and any recent NetworkPolicy changes affecting egress to kube-dns
+{{- end }}

@@ -1,32 +1,58 @@
 # Netops Agent
 
-A per node daemonset watching network traffic and exposing as metrics for prometheus.
+A host-kernel sensor: DaemonSet on Talos guests, systemd unit on Proxmox.
+Watches NIC traffic and the Thunderbolt/PCI GPU path, exports Prometheus
+metrics.
 
 ## Overview
 
 
 ```
-┌────────────────────────────────────────────────┐
-│ Node (×6: 3 CP + 3 worker)                     │
-│                                                │
-│  ┌───────────────┐    attach    ┌───────────┐  │
-│  │ netops-     │─────────────▶│ kernel    │  │
-│  │ agent (pod)   │              │  tcx rx   │  │
-│  │ hostNetwork   │              │  fentry×3 │  │
-│  │ UID 0 / BPF + │              │  fexit×1  │  │
-│  │ PERFMON +     │◀─────────────│           │  │
-│  │ NET_ADMIN +   │  BPF maps    └───────────┘  │
-│  │ SYS_ADMIN     │                             │
-│  └───────┬───────┘                             │
-│          │ :9101/metrics (hostPort)            │
-└──────────┼─────────────────────────────────────┘
-           │
-           ▼
-   ┌───────────────┐       ┌─────────────┐
-   │ Prometheus    │──────▶│ Grafana     │
-   │ (kps)         │       │ dashboard   │
-   └───────────────┘       └─────────────┘
+ eGPU enclosure
+      │ Thunderbolt
+      ▼
+┌─ Proxmox pve2 (not in the cluster) ──────────────────────────┐
+│                                                              │
+│  ┌────────────────┐  attach   ┌──────────────┐               │
+│  │ netops-agent   │──────────▶│ host NIC     │               │
+│  │ systemd        │           │ tcx rx       │               │
+│  │ role=host      │◀──────────│ fentry/fexit │               │
+│  │ UID 0 / BPF +  │  maps     └──────────────┘               │
+│  │ PERFMON +      │                                          │
+│  │ NET_ADMIN +    │  sysfs    ┌──────────────┐               │
+│  │ SYS_ADMIN      │──────────▶│ TB / PCI bus │── vfio-pci    │
+│  └───────┬────────┘  present, │ AER, auth    │      │        │
+│          │ :9101     hotplug  └──────────────┘      │        │
+└──────────┼──────────────────────────────────────────┼────────┘
+           │                                          │ QEMU
+           │                                          ▼
+           │    ┌─ Talos guest mlops-work-00 ──────────────────┐
+           │    │ (1 of 6: 3 CP + 3 worker)                    │
+           │    │                                              │
+           │    │  ┌────────────────┐ attach  ┌─────────────┐  │
+           │    │  │ netops-agent   │────────▶│ guest NIC   │  │
+           │    │  │ DaemonSet      │         │ tcx /       │  │
+           │    │  │ role=guest     │◀────────│ fentry/fexit│  │
+           │    │  │ hostNetwork    │ maps    └─────────────┘  │
+           │    │  └───────┬────────┘                          │
+           │    │          │          sysfs   ┌─────────────┐  │
+           │    │          │         ────────▶│ VFIO GPU    │  │
+           │    │          │ :9101    present │ only        │  │
+           │    │          │          only    └─────────────┘  │
+           │    └──────────┼───────────────────────────────────┘
+           │               │
+           │               │  other 5 Talos nodes: same DaemonSet, no GPU
+           │               │
+           ▼               ▼
+      ┌──────────────┐
+      │ Prometheus   │──────▶ Grafana
+      │ (kps)        │  pve2 = static target
+      └──────────────┘  guests = ServiceMonitor
 ```
+
+The agent runs twice, on opposite sides of the VFIO boundary. `pve2` sees the
+real NIC and the Thunderbolt/PCI fabric; `mlops-work-00` sees whether the GPU
+actually arrived in the VM. See `docs/index.md`.
 
 ## Metrics
 
