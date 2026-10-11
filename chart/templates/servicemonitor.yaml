@@ -1,29 +1,51 @@
 {{- if .Values.metrics.serviceMonitor.enabled }}
 ---
+{{/*
+Selects the headless Service in service.yaml. Both live in .Release.Namespace —
+do not hardcode one, the homelab releases this chart into `default`.
+
+metrics.serviceMonitor.additionalLabels MUST carry whatever label the target
+Prometheus/PrometheusAgent uses in its serviceMonitorSelector (kube-prometheus-stack
+defaults to `release: <helm release name>`), or the operator silently ignores this
+object and the targets never appear.
+*/}}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: netops-agent
-  namespace: netops
+  name: {{ include "netops.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
-    release: kube-prometheus-stack
-    app.kubernetes.io/name: netops
-    app.kubernetes.io/component: agent
+    {{- include "netops.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: netops
-      app.kubernetes.io/component: agent
+      {{- include "netops.selectorLabels" . | nindent 6 }}
   endpoints:
     - port: metrics
       path: /metrics
-      interval: 30s
-      scrapeTimeout: 10s
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
       relabelings:
+        # Every panel in the network-operations dashboard pivots on `nodename`.
+        # This is a DaemonSet: the node is the identity, not the pod.
         - sourceLabels: [__meta_kubernetes_pod_node_name]
           targetLabel: nodename
           action: replace
+        # User relabelings run AFTER the operator's own `job` relabel (which would
+        # otherwise set job to the Service name), so this pins the job label
+        # deterministically regardless of how the release happens to be named.
+        - targetLabel: job
+          replacement: {{ .Values.metrics.serviceMonitor.jobName | quote }}
+          action: replace
       metricRelabelings:
+        # The pod name is churn: it changes on every DaemonSet roll and carries no
+        # signal a per-node sensor needs. `nodename` above is the stable identity.
         - action: labeldrop
           regex: pod
 {{- end }}

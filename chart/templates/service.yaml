@@ -1,0 +1,26 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+---
+{{/*
+Headless by design. The pods are hostNetwork, so the EndpointSlice addresses are
+already the node IPs — which is exactly the `instance` value we want Prometheus to
+record. Nothing consumes this Service as a VIP; it exists only to give the
+ServiceMonitor something to select, so allocating a ClusterIP would be waste.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netops.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netops.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    {{- include "netops.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+{{- end }}

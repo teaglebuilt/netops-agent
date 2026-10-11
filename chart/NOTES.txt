@@ -15,10 +15,38 @@ the release namespace is warning or enforcing restricted. Label it privileged:
 Or set podSecurity.manageNamespace=true so this chart owns the Namespace and
 applies those labels. Do not co-locate untrusted workloads in that namespace.
 
-Metrics: hostNetwork binds :{{ .Values.metrics.port }} on each node. Prometheus
-can scrape via the pod IP (prometheus.io/scrape annotations
-{{- if .Values.metrics.scrapeAnnotations }} are on{{- else }} are off{{- end }}).
+Metrics: hostNetwork binds :{{ .Values.metrics.port }} on each node, so the pod IP
+is the node IP. There are two discovery paths, and they are MUTUALLY EXCLUSIVE —
+with both on, every sample is ingested twice under two different `job` names:
+
+  1. prometheus.io/scrape pod annotations .... {{ if .Values.metrics.scrapeAnnotations }}ON{{ else }}off{{ end }}
+     Needs a `kubernetes-pods` style scrape job on the scraping Prometheus.
+     Produces job="kubernetes-pods" and NO nodename label.
+
+  2. headless Service + ServiceMonitor ....... {{ if .Values.metrics.serviceMonitor.enabled }}ON{{ else }}off{{ end }}
+     Needs prometheus-operator. Produces job="{{ .Values.metrics.serviceMonitor.jobName }}"
+     plus a `nodename` label relabeled from the pod's node — which is what the
+     per-node dashboards key on.
+{{- if .Values.metrics.serviceMonitor.enabled }}
+{{- if not .Values.metrics.serviceMonitor.additionalLabels }}
+
+WARNING: serviceMonitor.enabled is true but additionalLabels is empty. The
+operator only adopts ServiceMonitors matching its serviceMonitorSelector
+(kube-prometheus-stack defaults to `release: <helm release name>`). Without a
+matching label this object is created and then silently ignored — no targets, no
+error. Check the live selector with:
+
+  kubectl get prometheus,prometheusagent -A \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.serviceMonitorSelector}{"\n"}{end}'
+{{- end }}
+{{- end }}
+{{- if and .Values.metrics.scrapeAnnotations .Values.metrics.serviceMonitor.enabled }}
+
+WARNING: both discovery paths are enabled — you will get duplicate series.
+Set metrics.scrapeAnnotations=false.
+{{- end }}
 {{- if gt (int .Values.metrics.hostPort) 0 }}
+
 hostPort {{ .Values.metrics.hostPort }} is set; it is redundant with hostNetwork
 and will keep triggering the hostPort PSS warning.
 {{- end }}

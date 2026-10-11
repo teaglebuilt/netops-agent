@@ -144,10 +144,17 @@ int BPF_PROG(record_dns_query, struct sock *sk, struct msghdr *msg)
     return 0;
 }
 
+/* udp_recvmsg's arity varies across kernels (noblock dropped in 5.19, addr_len
+   later), so only sk is declared and the return value is fetched with
+   bpf_get_func_ret() instead of from a fixed ctx slot the verifier may reject. */
 SEC("fexit/udp_recvmsg")
-int BPF_PROG(record_dns_response, struct sock *sk, struct msghdr *msg,
-             unsigned long len, int flags, int *addr_len, int ret)
+int BPF_PROG(record_dns_response, struct sock *sk)
 {
+    __u64 rv = 0;
+    if (bpf_get_func_ret(ctx, &rv) < 0) {
+        return 0;
+    }
+    int ret = (int)rv;
     if (ret <= 0) {
         return 0;
     }

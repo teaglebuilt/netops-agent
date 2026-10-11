@@ -35,9 +35,20 @@ resources:
 metrics:
   port: 9101
   hostPort: 0
+  # Annotation-based discovery. Mutually exclusive with serviceMonitor below —
+  # turning both on ingests every sample twice, under two different `job` names.
   scrapeAnnotations: true
   serviceMonitor:
     enabled: false
+    # Pinned via a relabeling so dashboards can hardcode job="netops-agent"
+    # regardless of the Helm release name.
+    jobName: netops-agent
+    interval: 30s
+    scrapeTimeout: 10s
+    # Must match the target Prometheus' serviceMonitorSelector or the operator
+    # silently ignores the object. kube-prometheus-stack defaults that selector to
+    # `release: <helm release name>` (the homelab hub/agent is `prometheus-community`).
+    additionalLabels: {}
   alerts:
     enabled: false
 
